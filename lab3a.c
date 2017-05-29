@@ -6,10 +6,10 @@
 #include <string.h>
 #include <errno.h>
 #include <stdlib.h>
-#include <linux/types.h>
 #include <fcntl.h>
 #include <unistd.h>
-
+#include <time.h>
+#include <stdbool.h>
 
 #include "ext2_fs.h"
 
@@ -50,10 +50,13 @@ int main(int argc, char * argv[])
   pread(fild, superblock, EXT2_MIN_BLOCK_SIZE, 1024);
   print_superblock();
 
-  // Calculate some sizes
+  // number of groups
   n_block_groups = 1 + ((superblock->s_blocks_count - 1) / superblock->s_blocks_per_group);
+  // total number of inodes
   n_inodes = 1 + ((superblock->s_inodes_count - 1) / superblock->s_inodes_per_group);
+  // total blocksize
   blocksize = 1024 << superblock->s_log_block_size;
+  // size of each inode
   inodesize = superblock->s_inode_size;
 
   //block group
@@ -114,9 +117,11 @@ void print_group()
       if (superblock->s_blocks_count < superblock->s_blocks_per_group) {
       	n_blocks_in_group = superblock->s_blocks_count;
       }
+      // If processing last group, may be incomplete
       else if ( k == n_block_groups -1) {
     	  n_blocks_in_group = superblock->s_blocks_count - (superblock->s_blocks_per_group * n_block_groups);
       }
+      // Default case
       else {
     	  n_blocks_in_group = superblock->s_blocks_per_group;
       }
@@ -183,41 +188,82 @@ void print_freeinode()
 
 }
 
-//UNDER CONSTRUCTION
-void print_inode() //must multigroup
-{
-  /*int k = 0;
-  inode = malloc(sizeof(ext2_inode));
-  for ( k = 0; k < superblock->s_inodes_per_group; k++)
-    {
-      pread(fild, inode, inodesize,
-	    (group->bg_inode_table * blocksize) + (inodesize * k));
+void print_inode_printer(struct ext2_inode* cur_inode, int inode_number) {
+  char file_type;
 
-    }
-  */
+  if ((cur_inode->i_mode & 0x8000) == 0x8000)       { file_type = 'f'; }
+  else if ((cur_inode->i_mode & 0xA000) == 0xA000)  { file_type = 's'; }
+  else if ((cur_inode->i_mode & 0x4000) == 0x4000)  { file_type = 'd'; }
+  else                                              { file_type = '?'; }
 
-  int k = 0, i = 0, j = 0, count = 1;
-  int bit = 0, inodenumber = 0;
-  __u8 buf;
+  const time_t c_time_sec = (const time_t) cur_inode->i_ctime;
+  const time_t m_time_sec = (const time_t) cur_inode->i_mtime;
+  const time_t a_time_sec = (const time_t) cur_inode->i_atime;
 
-  for (k = 0 ; k < n_block_groups; k++)
-    {
-      for (i = 0; i < blocksize; i++)
-	{
-	  pread(fild, &buf, 1, (group[k].bg_inode_bitmap * blocksize) + i);
-	  for (j = 0; j < 8; j++)
-	    {
-	      bit = buf & (1 << j);
+  struct tm* c_time = localtime(&c_time_sec);
+  struct tm* m_time = localtime(&m_time_sec);
+  struct tm* a_time = localtime(&a_time_sec);
 
-	      if (bit == 1 && count <= superblock->s_inodes_per_group)
-		{
-		  inodenumber = count;
-		  fprintf(stdout, "%d\n", inodenumber);
-		}
-	      count++;
-	    }
-	}
-    }
+  //      0     0  0  0   0  0  0  0                              0                            1                             1  1
+  //      1     2  3  4   5  6  7  8                              9                            0                             1  2
+  printf("INODE,%d,%c,%o,%d,%d,%d,%02d/%02d/%02d %02d:%02d:%02d,%02d/%02d/%02d %02d:%02d:%02d,%02d/%02d/%02d %02d:%02d:%02d,%d,%d\n",
+    inode_number,               // 2
+    file_type,                  // 3
+    cur_inode->i_mode & 0777,   // 4
+    cur_inode->i_uid,           // 5
+    cur_inode->i_gid,           // 6
+    cur_inode->i_links_count,   // 7
+    c_time->tm_mon + 1,         // 8: date
+    c_time->tm_mday,
+    c_time->tm_year % 100,
+    c_time->tm_hour,            // 8: time
+    c_time->tm_min,
+    c_time->tm_sec,
+    m_time->tm_mon + 1,         // 9: date
+    m_time->tm_mday,
+    m_time->tm_year % 100,
+    m_time->tm_hour,            // 9: time
+    m_time->tm_min,
+    m_time->tm_sec,
+    a_time->tm_mon + 1,         // 10: date
+    a_time->tm_mday,
+    a_time->tm_year % 100,
+    a_time->tm_hour,            // 10: time
+    a_time->tm_min,
+    a_time->tm_sec,
+    cur_inode->i_fsize,         // 11
+    cur_inode->i_blocks         // 12
+  );
+}
+
+void print_inode() {
+  struct ext2_inode* cur_inode = malloc(sizeof(struct ext2_inode));
+
+  // For each block group, group[i]
+  for (int i = 0; i < n_block_groups; i++) {
+    // For each inode in the table, table[j]
+    for (int j = 0; j < superblock->s_inodes_per_group; j++) {
+      // Calculate offsets for inode bitmap and inode table
+      __u32 bitmapOffset = (group[i].bg_inode_bitmap * blocksize) + j;
+      __u32 tableOffset = (group[i].bg_inode_table * blocksize) + (j * inodesize);
+
+      // Verify via bitmap that current inode is allocated
+      __u8 inode_allocated;
+      pread(fild, &inode_allocated, 1, bitmapOffset);
+      inode_allocated = (inode_allocated >> 7) & 1;
+      if (!inode_allocated) continue;
+
+      // Read in current inode and print CSV for it
+      pread(fild, cur_inode, inodesize, tableOffset);
+      if (cur_inode->i_mode != 0 && cur_inode->i_links_count != 0) {
+        // i + j is block number + inode offset within block
+        // add 1 because inode numbers start at 1
+        print_inode_printer(cur_inode, i + j + 1);
+      }
+    } // end: for(j)
+  } // end: for(i)
+
+  free (cur_inode);
 }
 
 void print_directories() {

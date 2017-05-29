@@ -56,8 +56,7 @@ typedef __int16_t	__s16;
 /*
  * Structure of a blocks group descriptor
  */
-struct ext2_group_desc
-{
+struct ext2_group_desc {
 	__u32	bg_block_bitmap;		/* Blocks bitmap block */
 	__u32	bg_inode_bitmap;		/* Inodes bitmap block */
 	__u32	bg_inode_table;		/* Inodes table block */
@@ -151,7 +150,7 @@ struct ext2_super_block {
 	 * the incompatible feature set is that if there is a bit set
 	 * in the incompatible feature set that the kernel doesn't
 	 * know about, it should refuse to mount the filesystem.
-	 * 
+	 *
 	 * e2fsck's requirements are more strict; if it doesn't know
 	 * about a feature in either the compatible or incompatible
 	 * feature set, it must abort and not try to meddle with
