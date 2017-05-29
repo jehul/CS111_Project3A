@@ -20,6 +20,7 @@ void print_superblock();
 void print_group();
 void print_freeblock();
 void print_freeinode();
+void print_inode_printer(struct ext2_inode* cur_inode, int inode_number);
 void print_inode();
 void print_directories(struct ext2_inode* in, int inode_number);
 void print_ib_references();
@@ -108,8 +109,7 @@ void print_superblock()
   superblock->s_first_ino);
 }
 
-void print_group()
-{
+void print_group() {
   int n_blocks_in_group, k;
 
   for (k = 0; k < n_block_groups; k++) {
@@ -138,25 +138,21 @@ void print_group()
   }
 }
 
-void print_freeblock()
-{
+void print_freeblock() {
   //for every block group, print BFREE if bit == 0
   int k = 0, i = 0, j = 0;
   int bit = 0;
 
   __u8 buf;
 
-  for (k = 0 ; k < n_block_groups; k++)
-  {
-    for (i = 0; i < blocksize; i++)
-    {
+  for (k = 0 ; k < n_block_groups; k++) {
+    for (i = 0; i < blocksize; i++) {
       pread(fild, &buf, 1, (group[k].bg_block_bitmap * blocksize) + i);
-      for (j = 0; j < 8; j++)
-      {
+      for (j = 0; j < 8; j++) {
         bit = buf & (1 << j);
-
-        if (bit == 0)
-        fprintf(stdout, "BFREE,%d\n", (k*n_block_groups) + (i*8) + j + 1);
+        if (bit == 0) {
+          fprintf(stdout, "BFREE,%d\n", (k*n_block_groups) + (i*8) + j + 1);
+        }
         //check this
       }
     }
@@ -164,23 +160,19 @@ void print_freeblock()
 
 }
 
-void print_freeinode()
-{
+void print_freeinode() {
   int k = 0, i = 0, j = 0;
   int bit = 0;
   __u8 buf;
 
-  for (k = 0 ; k < n_block_groups; k++)
-  {
-    for (i = 0; i < blocksize; i++)
-    {
+  for (k = 0 ; k < n_block_groups; k++) {
+    for (i = 0; i < blocksize; i++) {
       pread(fild, &buf, 1, (group[k].bg_inode_bitmap * blocksize) + i);
-      for (j = 0; j < 8; j++)
-      {
+      for (j = 0; j < 8; j++) {
         bit = buf & (1 << j);
-
-        if (bit == 0)
-        fprintf(stdout, "IFREE,%d\n", (k*n_inodes) + (i*8) + j + 1);
+        if (bit == 0) {
+          fprintf(stdout, "IFREE,%d\n", (k*n_inodes) + (i*8) + j + 1);
+        }
         //check this
       }
     }
@@ -193,10 +185,7 @@ void print_inode_printer(struct ext2_inode* cur_inode, int inode_number) {
 
   if ((cur_inode->i_mode & 0x8000) == 0x8000)       { file_type = 'f'; }
   else if ((cur_inode->i_mode & 0xA000) == 0xA000)  { file_type = 's'; }
-  else if ((cur_inode->i_mode & 0x4000) == 0x4000)  {
-    file_type = 'd';
-    print_directories(cur_inode, inode_number);
-  }
+  else if ((cur_inode->i_mode & 0x4000) == 0x4000)  { file_type = 'd'; }
   else                                              { file_type = '?'; }
 
   const time_t c_time_sec = (const time_t) cur_inode->i_ctime;
@@ -236,6 +225,8 @@ void print_inode_printer(struct ext2_inode* cur_inode, int inode_number) {
   a_time->tm_sec,
   cur_inode->i_fsize,         // 11
   cur_inode->i_blocks);       // 12
+
+  if (file_type == 'd') { print_directories(cur_inode, inode_number); }
 }
 
 void print_inode() {
@@ -270,46 +261,45 @@ void print_inode() {
 }
 
 void print_directories(struct ext2_inode* in, int inode_number) {
-  int j,k;
-  struct ext2_dir_entry* d_entry = malloc(sizeof(struct ext2_dir_entry));
-  int cur_block;
-  int count = 0, offset;
+  struct ext2_dir_entry d_entry;
 
   // For each block in the i_block array
   for (int i = 0; i < 15; i++) {
-    int d_index = 0;
-    pread(fild, &cur_block, 4, (in->i_block[i] * blocksize));
+    int cur_block = in->i_block[i];
     if (cur_block == 0) break;  // value of 0 is the array terminator
-    count++;
 
     // Current block is a direct block
-    if(count <= 12)  {
-      // Traverse data until you find a directory (what's point of this?)
-      do {
-        offset = (cur_block * blocksize) + (d_index * sizeof(struct ext2_dir_entry));
-        pread(fild, d_entry, sizeof(struct ext2_dir_entry), offset);
-        d_index++;
-      } while (d_entry->file_type != 2);
+    if(i + 1 <= 12)  {
+      int entries_base = (cur_block * blocksize);
+      int entry_offset = 0;
+      while(1) {
+        pread(fild, &d_entry, sizeof(struct ext2_dir_entry), entries_base + entry_offset);
 
-      int entry_len = 8 + d_entry->name_len;
-      if (entry_len % 4 == 0) { entry_len = 8 + d_entry->name_len; }
-      else { entry_len += (4 - entry_len % 4); }
+        // Reached end of entries for this directory or hit empty inode
+        if (entry_offset >= 1024 || d_entry.inode == 0) break;
 
-      fprintf(stdout,"DIRENT,%d,%d,%d,%d,%d,%s\n",
-        inode_number,
-        sizeof(struct ext2_dir_entry) * d_index,
-        d_entry->inode,
-        entry_len,
-        d_entry->name_len,
-        d_entry->name);
+        int entry_len = 8 + d_entry.name_len;
+        if (entry_len % 4 == 0) { entry_len = 8 + d_entry.name_len; }
+        else { entry_len += (4 - entry_len % 4); }
+
+        fprintf(stdout,"DIRENT,%d,%d,%d,%d,%d,%s\n",
+          inode_number,
+          entry_offset,
+          d_entry.inode,
+          entry_len,
+          d_entry.name_len,
+          d_entry.name
+        );
+
+        entry_offset += d_entry.rec_len;
+      }
+    }
+
+    // Singly indirect block
+    else if (i + 1 >= 13) {
+      //place print_ib_references() here
     }
   }
-
-  // Singly indirect block
-  if(count >= 12) {
-    //place print_ib_references() here
-  }
-  free(d_entry);
 }
 
 void print_ib_references() {
