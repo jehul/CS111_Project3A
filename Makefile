@@ -9,3 +9,5 @@ lab3a: lab3a.c
 
 clean:
 	@-rm $(EXEC) $(TARBALL)
+dist:
+	tar -zcvf lab3a-004569045.tar.gz $(SOURCE) Makefile README ext2_fs.h

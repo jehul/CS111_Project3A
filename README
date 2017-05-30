@@ -1,1 +1,25 @@
-hehe
+NAME: Bibek Ghimire Jehu Lee
+EMAIL: bibekg@ucla.edu jehulee97@g.ucla.edu
+ID: 004569045 404646481
+
+INCLUDED:
+lab3a.c   C source file that prints file system stats to stdout.
+README    (THIS FILE) general information
+Makefile  Make instructions, dist, clean, default
+
+RESOURCES:
+The primary resource used for this project was the EXT2 file system documentation
+found on the spec. No other resource was necessary.
+
+LIMITATIONS:
+To be found.
+
+FEATURES:
+Prints to stdout the information on the following:
+Superblock
+Block Groups
+Free Block Entries
+Free Inode Entries
+Inodes
+Directory Entries
+Indirect Block References
