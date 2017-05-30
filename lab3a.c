@@ -187,10 +187,20 @@ void print_inode_printer(struct ext2_inode* cur_inode, int inode_number) {
   const time_t m_time_sec = (const time_t) cur_inode->i_mtime;
   const time_t a_time_sec = (const time_t) cur_inode->i_atime;
 
-  struct tm* c_time = localtime(&c_time_sec);
-  struct tm* m_time = localtime(&m_time_sec);
-  struct tm* a_time = localtime(&a_time_sec);
+  int c_hour,c_min,c_sec,m_hour,m_min,m_sec,a_hour,a_min,a_sec;
 
+  struct tm* c_time = gmtime(&c_time_sec);
+  c_hour = c_time->tm_hour;            // 8: time
+  c_min = c_time->tm_min;
+  c_sec = c_time->tm_sec;
+  struct tm* m_time = gmtime(&m_time_sec);
+  m_hour = m_time->tm_hour;            // 9: time
+  m_min = m_time->tm_min;
+  m_sec = m_time->tm_sec;
+  struct tm* a_time = gmtime(&a_time_sec);
+  a_hour = a_time->tm_hour,            // 10: time
+  a_min = a_time->tm_min,
+  a_sec = a_time->tm_sec,
   //      0     0  0  0   0  0  0  0                              0                            1                             1  1
   //      1     2  3  4   5  6  7  8                              9                            0                             1  2
   printf("INODE,%d,%c,%o,%d,%d,%d,%02d/%02d/%02d %02d:%02d:%02d,%02d/%02d/%02d %02d:%02d:%02d,%02d/%02d/%02d %02d:%02d:%02d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
@@ -203,21 +213,21 @@ void print_inode_printer(struct ext2_inode* cur_inode, int inode_number) {
   c_time->tm_mon + 1,         // 8: date
   c_time->tm_mday,
   c_time->tm_year % 100,
-  c_time->tm_hour,            // 8: time
-  c_time->tm_min,
-  c_time->tm_sec,
+  c_hour,            // 8: time
+  c_min,
+  c_sec,
   m_time->tm_mon + 1,         // 9: date
   m_time->tm_mday,
   m_time->tm_year % 100,
-  m_time->tm_hour,            // 9: time
-  m_time->tm_min,
-  m_time->tm_sec,
+  m_hour,            // 9: time
+  m_min,
+  m_sec,
   a_time->tm_mon + 1,         // 10: date
   a_time->tm_mday,
   a_time->tm_year % 100,
-  a_time->tm_hour,            // 10: time
-  a_time->tm_min,
-  a_time->tm_sec,
+  a_hour,            // 10: time
+  a_min,
+  a_sec,
   cur_inode->i_size,          // 11: file size
   cur_inode->i_blocks,        // 12:
   cur_inode->i_block[0],      // 13-27: block ids
@@ -325,7 +335,7 @@ void print_ib_references(int inodenumber, int blockid, int count) {
   
   for (k = 0; k < (blocksize/sizeof(int)); k++)
     {
-      level_of_indirection = 1;//1st level of indirection
+      level_of_indirection = 1;//START 1st level of indirection
       pread(fild, &buf, 4, (blockid * blocksize) + (k * 4));
       if (buf != 0)
 	{
@@ -338,11 +348,11 @@ void print_ib_references(int inodenumber, int blockid, int count) {
 		  buf);
 	}
 
-      if (count == 13) continue; //1st level of Indirection: DO NOT GO FURTHER
+      if (count == 13) continue; //END 1st level of Indirection: DO NOT GO FURTHER
 
       for (j = 0; j < (blocksize/sizeof(int)); j++)
 	{
-	  level_of_indirection = 2;//2nd level of indirection
+	  level_of_indirection = 2;//START 2nd level of indirection
 	  pread(fild, &buf2, 4, (buf * blocksize) + (j * 4));
 	  if (buf2 != 0)
 	    {
@@ -355,10 +365,10 @@ void print_ib_references(int inodenumber, int blockid, int count) {
 		      buf2);
 	    }
 
-	  if (count == 14) continue; //2nd level of indirection: DO NOT GO FURTHER
+	  if (count == 14) continue; //END 2nd level of indirection: DO NOT GO FURTHER
 	  for (i = 0; i < (blocksize/sizeof(int)); i++)
 	    {
-	      level_of_indirection = 3;//3rd level of indirection
+	      level_of_indirection = 3;//START 3rd level of indirection
 	      pread(fild, &buf3, 4, (buf2 * blocksize) + (i * 4));
 	      if (buf2 != 0)
 		{
