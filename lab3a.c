@@ -356,7 +356,7 @@ void print_ib_references(int inodenumber, int blockid, int count) {
 	  pread(fild, &buf2, 4, (buf * blocksize) + (j * 4));
 	  if (buf2 != 0)
 	    {
-	      file_offset = 12 + j;
+	      file_offset = 12 + (k*(blocksize/4)) + j; //fishy
 	      fprintf(stdout, "INDIRECT,%d,%d,%d,%d,%d\n",
 		      inodenumber,
 		      level_of_indirection,
@@ -372,7 +372,7 @@ void print_ib_references(int inodenumber, int blockid, int count) {
 	      pread(fild, &buf3, 4, (buf2 * blocksize) + (i * 4));
 	      if (buf2 != 0)
 		{
-		  file_offset = 12 + i;
+		  file_offset = 12 + (k*(blocksize/4)) + (j*(blocksize/4)) + i; //fishy
 		  fprintf(stdout, "INDIRECT,%d,%d,%d,%d,%d\n",
 			  inodenumber,
 			  level_of_indirection,
