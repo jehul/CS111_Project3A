@@ -23,7 +23,7 @@ void print_freeinode();
 void print_inode_printer(struct ext2_inode* cur_inode, int inode_number);
 void print_inode();
 void print_directories(struct ext2_inode* in, int inode_number);
-void print_ib_references(int inodenumber, int blockid, int count);
+void print_ib_references(int inodenumber, int blockid, int block_ind_amount);
 /////////////////////////////////////////
 
 ///GLOBALS///
@@ -74,7 +74,7 @@ int main(int argc, char * argv[])
   //I-node summary -> Implicit call to directory entries and indirect block references
   print_inode();
 
-    
+
   exit(0); //exit at success
 }
 
@@ -244,16 +244,19 @@ void print_inode_printer(struct ext2_inode* cur_inode, int inode_number) {
   cur_inode->i_block[11],
   cur_inode->i_block[12],
   cur_inode->i_block[13],
-  cur_inode->i_block[14]);       
+  cur_inode->i_block[14]);
+
+  // TODO: Move the below into print_inode() for clearer function interface
 
   if (file_type == 'd') { print_directories(cur_inode, inode_number); }
-  
+
   //Looks for Indirect Block References
-  int k = 0; 
-  for (k = 12; k < 14; k++){
-    if(cur_inode->i_block[k] != 0)   
-      print_ib_references(inode_number, cur_inode->i_block[k], k + 1);
+  int k = 0;
+  for (k = 0; k < 3; k++){
+    if(cur_inode->i_block[k + 12] != 0)
+      print_ib_references(inode_number, cur_inode->i_block[k + 12], k + 1);
   }
+
 }
 
 void print_inode() {
@@ -278,13 +281,14 @@ void print_inode() {
       if (cur_inode->i_mode != 0 && cur_inode->i_links_count != 0) {
         // i + j is block number + inode offset within block
         // add 1 because inode numbers start at 1
-        print_inode_printer(cur_inode, i + j + 1);
-        
+        int inode_number = i + j + 1;
+        print_inode_printer(cur_inode, inode_number);
+
       }
     } // end: for(j)
   } // end: for(i)
 
-  free (cur_inode);
+  free(cur_inode);
 }
 
 void print_directories(struct ext2_inode* in, int inode_number) {
@@ -307,7 +311,7 @@ void print_directories(struct ext2_inode* in, int inode_number) {
         if (entry_offset >= 1024 || d_entry.inode == 0) break;
 
         entry_len = d_entry.rec_len;
-        
+
         fprintf(stdout,"DIRENT,%d,%d,%d,%d,%d,'%s'\n",
           inode_number,
           entry_offset,
@@ -322,68 +326,60 @@ void print_directories(struct ext2_inode* in, int inode_number) {
 
     }
 
-     
+
   }
 }
 
-void print_ib_references(int inodenumber, int blockid, int count) {
+// block_ind_amount is single, double, or triple indirection
+void print_ib_references(int inodenumber, int blockid, int block_ind_amount) {
   int buf, buf2, buf3;
-  
   int k, j, i;
-  int level_of_indirection;
-  int file_offset; //may have to correct this
-  
-  for (k = 0; k < (blocksize/sizeof(int)); k++)
-    {
-      level_of_indirection = 1;//START 1st level of indirection
-      pread(fild, &buf, 4, (blockid * blocksize) + (k * 4));
-      if (buf != 0)
-	{
-	  file_offset = 12 + k;
-	  fprintf(stdout, "INDIRECT,%d,%d,%d,%d,%d\n",
-		  inodenumber,
-		  level_of_indirection,
-		  file_offset,
-		  blockid,
-		  buf);
-	}
+  int file_offset = 0;
+  const int pointersPerBlock = blocksize / sizeof(int);
 
-      if (count == 13) continue; //END 1st level of Indirection: DO NOT GO FURTHER
+  // Read each value within level-1 indirect block
+  for (k = 0; k < pointersPerBlock; k++) {
+      file_offset = (11 + block_ind_amount) + k;
+      pread(fild, &buf, 4, (blockid * blocksize) + (k * sizeof(int)));
+      if (buf != 0) {
+    	  fprintf(stdout, "INDIRECT,%d,%d,%d,%d,%d\n",
+    		  inodenumber,
+    		  1,           // indirection level
+    		  file_offset,
+    		  blockid,
+    		  buf);
+    	}
 
-      for (j = 0; j < (blocksize/sizeof(int)); j++)
-	{
-	  level_of_indirection = 2;//START 2nd level of indirection
-	  pread(fild, &buf2, 4, (buf * blocksize) + (j * 4));
-	  if (buf2 != 0)
-	    {
-	      file_offset = 12 + (k*(blocksize/4)) + j; //fishy
-	      fprintf(stdout, "INDIRECT,%d,%d,%d,%d,%d\n",
-		      inodenumber,
-		      level_of_indirection,
-		      file_offset,
-		      buf,
-		      buf2);
-	    }
+      if (block_ind_amount == 1) continue;
+      // Read each value within level-2 indirect block
+      for (j = 0; j < pointersPerBlock; j++) {
+        file_offset = (11 + block_ind_amount) + ((k + 1) * pointersPerBlock) + j;
+    	  pread(fild, &buf2, 4, (buf * blocksize) + (j * 4));
+    	  if (buf2 != 0) {
+  	      fprintf(stdout, "INDIRECT,%d,%d,%d,%d,%d\n",
+  		      inodenumber,
+  		      2,         // indirection level
+  		      file_offset,
+  		      buf,
+  		      buf2);
+  	    }
 
-	  if (count == 14) continue; //END 2nd level of indirection: DO NOT GO FURTHER
-	  for (i = 0; i < (blocksize/sizeof(int)); i++)
-	    {
-	      level_of_indirection = 3;//START 3rd level of indirection
-	      pread(fild, &buf3, 4, (buf2 * blocksize) + (i * 4));
-	      if (buf2 != 0)
-		{
-		  file_offset = 12 + (k*(blocksize/4)) + (j*(blocksize/4)) + i; //fishy
-		  fprintf(stdout, "INDIRECT,%d,%d,%d,%d,%d\n",
-			  inodenumber,
-			  level_of_indirection,
-			  file_offset,
-			  buf2,
-			  buf3);
-		}
-	    }//for loop inner	  
-	}//for loop middle
-    }//for loop outer
- 
+    	  if (block_ind_amount == 2) continue;
+        // Read each value within level-3 indirect block
+    	  for (i = 0; i < pointersPerBlock; i++) {
+          file_offset = (11 + block_ind_amount) + (pointersPerBlock * ((k + 1) + (j + 1))) + i;
+  	      pread(fild, &buf3, 4, (buf2 * blocksize) + (i * 4));
+  	      if (buf3 != 0) {
+      		  fprintf(stdout, "INDIRECT,%d,%d,%d,%d,%d\n",
+      			  inodenumber,
+      			  3,              // indirection level
+              file_offset,            // file offset
+      			  buf2,
+      			  buf3);
+      		}
+  	    } // exit: for(level-3)
+    	} // exit: for(level-2)
+    } // exit: for(level-1)
 }
 
 //waddup Bibek
