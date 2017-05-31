@@ -1,5 +1,6 @@
 SOURCE=lab3a.c
 EXEC=lab3a
+SANEFILE=P3A_check.sh
 STID=004569045
 
 build: lab3a
@@ -12,3 +13,6 @@ clean:
 
 dist:
 	tar -zcvf lab3a-$(STID).tar.gz $(SOURCE) Makefile README ext2_fs.h
+
+sane:
+	./$(SANEFILE) $(STID)
