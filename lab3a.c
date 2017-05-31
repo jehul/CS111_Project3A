@@ -179,79 +179,74 @@ void print_freeinode() {
 
 void process_everythang() {
   const int PPB = blocksize / sizeof(int);
-  struct ext2_inode cur_inode;
+  struct ext2_inode* cur_inode = malloc(sizeof(struct ext2_inode));
   int i,j, file_type;
   int file_offset = 0;
   // For each block group, group[i]
   for (i = 0; i < n_block_groups; i++) {
     // For each inode in the table, table[j]
     for (j = 0; j < superblock->s_inodes_per_group; j++) {
-      if (j == 1) {
-        int a = 0;
-      }
       __u32 tableOffset = (group[i].bg_inode_table * blocksize) + (j * inodesize);
-      pread(fild, &cur_inode, inodesize, tableOffset);
-      if (cur_inode.i_mode != 0 && cur_inode.i_links_count != 0) {
+      pread(fild, cur_inode, inodesize, tableOffset);
+      if (cur_inode->i_mode != 0 && cur_inode->i_links_count != 0) {
         int inode_number = i + j + 1;
-        if      ((cur_inode.i_mode & 0x8000) == 0x8000)  { file_type = 'f'; }
-        else if ((cur_inode.i_mode & 0xA000) == 0xA000)  { file_type = 's'; }
-        else if ((cur_inode.i_mode & 0x4000) == 0x4000)  { file_type = 'd'; }
+        if      ((cur_inode->i_mode & 0x8000) == 0x8000)  { file_type = 'f'; }
+        else if ((cur_inode->i_mode & 0xA000) == 0xA000)  { file_type = 's'; }
+        else if ((cur_inode->i_mode & 0x4000) == 0x4000)  { file_type = 'd'; }
         else                                              { file_type = '?'; }
 
-        if (inode_number == 147) {
-          int a = 0;
-        }
-
         // We now have an inode
-        print_inode(inode_number, &cur_inode, file_type);
+        print_inode(inode_number, cur_inode, file_type);
+
+        fprintf(stderr, "12, 13, 14: %d, %d, %d\n", cur_inode->i_block[12], cur_inode->i_block[13], cur_inode->i_block[14]);
 
         int indirection_level, cur_block;
 
         // Setup process call for direct blocks
         for (int k = 0; k < 12; k++) {
-          indirection_level = 0;
-          cur_block = cur_inode.i_block[k];
-          if (cur_block == 0) break;  // value of 0 is the i_block array terminator
+          cur_block = cur_inode->i_block[k];
           file_offset = k;
-          process_data_block(cur_block, 0, file_offset, inode_number, indirection_level, 0, (file_type == 'd'), false);
+          process_data_block(cur_block, 0, file_offset, inode_number, 0, 0, (file_type == 'd'), false);
         }
-        if (cur_block == 0) continue;  // value of 0 is the i_block array terminator
+
         // Setup process call for indirect blocks
         for (int k = 0; k < 3; k++) {
-          indirection_level = k+1;
-          cur_block = cur_inode.i_block[k + 12];
-          if (cur_block == 0) break;  // value of 0 is the i_block array terminator
+          indirection_level = k + 1;
+          cur_block = cur_inode->i_block[k + 12];
+          if (cur_block == 0) continue;  // value of 0 is the i_block array terminator
           switch (indirection_level) {
             case 1: file_offset = 12; break;
             case 2: file_offset = 12 + PPB; break;
             case 3: file_offset = 12 + PPB + (PPB * PPB); break;
             default: break;
           }
-          process_data_block(cur_block, 0, file_offset, inode_number, indirection_level, 0, (file_type == 'd'), false);
+          if (cur_block != 0) {
+            process_data_block(cur_block, 0, file_offset, inode_number, indirection_level, 0, (file_type == 'd'), false);
+          }
         }
         if (cur_block == 0) continue;  // value of 0 is the i_block array terminator
       }
     } // end: for(j)
   } // end: for(i)
+  free(cur_inode);
 }
 
 // Recursive-ready function for scanning data blocks
 // was_referenced should be false on first call to not print INDIRECT for root block
 void process_data_block(const int cur_block, const int ref_block, const int file_offset, const int inode_number, const int max_ind_level, const int curr_ind_level, const bool is_dir, const bool was_referenced) {
+
+  if (was_referenced && cur_block != 0) { print_indirect(inode_number, curr_ind_level, file_offset, cur_block, ref_block); }
+
   // This means cur_block refers to a block that contains real data, not pointers or 0
   if (curr_ind_level == max_ind_level) {
     if (cur_block != 0) {
       // If the inode is a directory, print a DIRENT CSV for the cur_block
       if (is_dir) { print_directories(inode_number, cur_block * blocksize, file_offset); }
-      if (was_referenced) { print_indirect(inode_number, curr_ind_level, file_offset, cur_block, ref_block); }
     }
   }
   // cur_block contains pointers, i.e. is an indirect block
   else {
     const int PPB = blocksize / sizeof(int);  // pointers per block
-
-    if (was_referenced) { print_indirect(inode_number, curr_ind_level, file_offset, cur_block, ref_block); }
-
     // Read and process each block indirectly pointed to
     for (int i = 0; i < PPB; i++) {
       int next_block;
@@ -285,7 +280,7 @@ void print_directories(const int inode_number, const int entries_base, const int
 }
 
 void print_indirect(const int inode_number, const int ind_level, const int file_offset, const int block_id, const int ref_block) {
-  fprintf(stdout, "INDIRECT,%d,%d,%llu,%d,%d\n",
+  fprintf(stdout, "INDIRECT,%d,%d,%d,%d,%d\n",
     inode_number,
     ind_level,
     file_offset,
