@@ -20,10 +20,13 @@ void print_superblock();
 void print_group();
 void print_freeblock();
 void print_freeinode();
-void print_inode_printer(struct ext2_inode* cur_inode, int inode_number);
-void print_inode();
-void print_directories(struct ext2_inode* in, int inode_number);
-void print_ib_references(int inodenumber, int blockid, int block_ind_amount);
+
+void process_everythang();
+void process_data_block(const int cur_block, const int ref_block, const int file_offset, const int inode_number, const int max_ind_level, const int curr_ind_level, const bool is_dir, const bool was_referenced);
+void print_directories(const int inode_number, const int entries_base, const int file_offset);
+void print_indirect(const int inode_number, const int ind_level, const int file_offset, const int cur_block, const int ref_block);
+void print_inode(int inode_number, struct ext2_inode* cur_inode, char file_type);
+
 /////////////////////////////////////////
 
 ///GLOBALS///
@@ -34,14 +37,12 @@ int n_block_groups, n_inodes;
 int fild, blocksize, inodesize;
 
 ///DRIVER///
-int main(int argc, char * argv[])
-{
+int main(int argc, char * argv[]) {
   int n_groups = 0;
   if(argc != 2) { print_usage(); exit(1); }
 
   fild = open(argv[1], O_RDONLY);
-  if( fild < 0 )
-  {
+  if(fild < 0 ) {
     print_error();
     exit(1);
   }
@@ -72,7 +73,7 @@ int main(int argc, char * argv[])
   print_freeinode();
 
   //I-node summary -> Implicit call to directory entries and indirect block references
-  print_inode();
+  process_everythang();
 
 
   exit(0); //exit at success
@@ -176,204 +177,185 @@ void print_freeinode() {
 
 }
 
-void print_inode() {
+void process_everythang() {
+  const int PPB = blocksize / sizeof(int);
   struct ext2_inode cur_inode;
-  int i,j;
+  int i,j, file_type;
+  int file_offset = 0;
   // For each block group, group[i]
   for (i = 0; i < n_block_groups; i++) {
     // For each inode in the table, table[j]
     for (j = 0; j < superblock->s_inodes_per_group; j++) {
-      // Calculate offsets for inode bitmap and inode table
-      __u32 bitmapOffset = (group[i].bg_inode_bitmap * blocksize) + j;
+      if (j == 1) {
+        int a = 0;
+      }
       __u32 tableOffset = (group[i].bg_inode_table * blocksize) + (j * inodesize);
-
-      // Verify via bitmap that current inode is allocated
-      __u8 inode_allocated;
-      pread(fild, &inode_allocated, 1, bitmapOffset);
-      inode_allocated = (inode_allocated >> 7) & 1;
-      // if (!inode_allocated) continue;
-
-      // Read in current inode and print CSV for it
-      pread(fild, cur_inode, inodesize, tableOffset);
+      pread(fild, &cur_inode, inodesize, tableOffset);
       if (cur_inode.i_mode != 0 && cur_inode.i_links_count != 0) {
-        // i + j is block number + inode offset within block
-        // add 1 because inode numbers start at 1
         int inode_number = i + j + 1;
-
-        char file_type;
-
-        if ((cur_inode.i_mode & 0x8000) == 0x8000)       { file_type = 'f'; }
+        if      ((cur_inode.i_mode & 0x8000) == 0x8000)  { file_type = 'f'; }
         else if ((cur_inode.i_mode & 0xA000) == 0xA000)  { file_type = 's'; }
         else if ((cur_inode.i_mode & 0x4000) == 0x4000)  { file_type = 'd'; }
         else                                              { file_type = '?'; }
 
-        const time_t c_time_sec = (const time_t) cur_inode.i_ctime;
-        const time_t m_time_sec = (const time_t) cur_inode.i_mtime;
-        const time_t a_time_sec = (const time_t) cur_inode.i_atime;
-
-        struct tm* c_time = gmtime(&c_time_sec);
-        int c_hour = c_time->tm_hour;            // 8: time
-        int c_min = c_time->tm_min;
-        int c_sec = c_time->tm_sec;
-        struct tm* m_time = gmtime(&m_time_sec);
-        int m_hour = m_time->tm_hour;            // 9: time
-        int m_min = m_time->tm_min;
-        int m_sec = m_time->tm_sec;
-        struct tm* a_time = gmtime(&a_time_sec);
-        int a_hour = a_time->tm_hour,            // 10: time
-        int a_min = a_time->tm_min,
-        int a_sec = a_time->tm_sec,
-        //      0     0  0  0   0  0  0  0                              0                            1                             1  1
-        //      1     2  3  4   5  6  7  8                              9                            0                             1  2
-        printf("INODE,%d,%c,%o,%d,%d,%d,%02d/%02d/%02d %02d:%02d:%02d,%02d/%02d/%02d %02d:%02d:%02d,%02d/%02d/%02d %02d:%02d:%02d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
-          inode_number,               // 2
-          file_type,                  // 3
-          cur_inode.i_mode & 0777,   // 4
-          cur_inode.i_uid,           // 5
-          cur_inode.i_gid,           // 6
-          cur_inode.i_links_count,   // 7
-          c_time->tm_mon + 1,         // 8: date
-          c_time->tm_mday,
-          c_time->tm_year % 100,
-          c_hour,            // 8: time
-          c_min,
-          c_sec,
-          m_time->tm_mon + 1,         // 9: date
-          m_time->tm_mday,
-          m_time->tm_year % 100,
-          m_hour,            // 9: time
-          m_min,
-          m_sec,
-          a_time->tm_mon + 1,         // 10: date
-          a_time->tm_mday,
-          a_time->tm_year % 100,
-          a_hour,            // 10: time
-          a_min,
-          a_sec,
-          cur_inode.i_size,          // 11: file size
-          cur_inode.i_blocks,        // 12:
-          cur_inode.i_block[0],      // 13-27: block ids
-          cur_inode.i_block[1],
-          cur_inode.i_block[2],
-          cur_inode.i_block[3],
-          cur_inode.i_block[4],
-          cur_inode.i_block[5],
-          cur_inode.i_block[6],
-          cur_inode.i_block[7],
-          cur_inode.i_block[8],
-          cur_inode.i_block[9],
-          cur_inode.i_block[10],
-          cur_inode.i_block[11],
-          cur_inode.i_block[12],
-          cur_inode.i_block[13],
-          cur_inode.i_block[14]
-        );
-
-        if (file_type == 'd') { print_directories(cur_inode, inode_number); }
-
-        //Looks for Indirect Block References
-        int k = 0;
-        for (k = 0; k < 3; k++){
-          if(cur_inode.i_block[k + 12] != 0)
-            print_ib_references(inode_number, cur_inode.i_block[k + 12], k + 1);
+        if (inode_number == 147) {
+          int a = 0;
         }
+
+        // We now have an inode
+        print_inode(inode_number, &cur_inode, file_type);
+
+        int indirection_level, cur_block;
+
+        // Setup process call for direct blocks
+        for (int k = 0; k < 12; k++) {
+          indirection_level = 0;
+          cur_block = cur_inode.i_block[k];
+          if (cur_block == 0) break;  // value of 0 is the i_block array terminator
+          file_offset = k;
+          process_data_block(cur_block, 0, file_offset, inode_number, indirection_level, 0, (file_type == 'd'), false);
+        }
+        if (cur_block == 0) continue;  // value of 0 is the i_block array terminator
+        // Setup process call for indirect blocks
+        for (int k = 0; k < 3; k++) {
+          indirection_level = k+1;
+          cur_block = cur_inode.i_block[k + 12];
+          if (cur_block == 0) break;  // value of 0 is the i_block array terminator
+          switch (indirection_level) {
+            case 1: file_offset = 12; break;
+            case 2: file_offset = 12 + PPB; break;
+            case 3: file_offset = 12 + PPB + (PPB * PPB); break;
+            default: break;
+          }
+          process_data_block(cur_block, 0, file_offset, inode_number, indirection_level, 0, (file_type == 'd'), false);
+        }
+        if (cur_block == 0) continue;  // value of 0 is the i_block array terminator
       }
     } // end: for(j)
   } // end: for(i)
 }
 
-// Currently only processes direct blocks
-void print_directories(struct ext2_inode* in, int inode_number) {
-  struct ext2_dir_entry d_entry;
-  int i = 0;
-  int entry_len = 0;
-  // For each block in the i_block array of
-  for (i = 0; i < 15; i++) {
-    int cur_block = in->i_block[i];
-    if (cur_block == 0) break;  // value of 0 is the i_block array terminator
-
-    // Current block is a direct block
-    if (i + 1 <= 12)  {
-      int entries_base = (cur_block * blocksize);
-      int entry_offset = 0;
-      while(1) {
-        pread(fild, &d_entry, sizeof(struct ext2_dir_entry), entries_base + entry_offset);
-
-        // Reached end of entries for this directory or hit empty inode
-        if (entry_offset >= 1024 || d_entry.inode == 0) break;
-
-        entry_len = d_entry.rec_len;
-
-        fprintf(stdout,"DIRENT,%d,%d,%d,%d,%d,'%s'\n",
-          inode_number,
-          (i * blocksize) + entry_offset ,
-          d_entry.inode,
-          entry_len,
-          d_entry.name_len,
-          d_entry.name
-        );
-
-        entry_offset += d_entry.rec_len;
-      }
+// Recursive-ready function for scanning data blocks
+// was_referenced should be false on first call to not print INDIRECT for root block
+void process_data_block(const int cur_block, const int ref_block, const int file_offset, const int inode_number, const int max_ind_level, const int curr_ind_level, const bool is_dir, const bool was_referenced) {
+  // This means cur_block refers to a block that contains real data, not pointers or 0
+  if (curr_ind_level == max_ind_level) {
+    if (cur_block != 0) {
+      // If the inode is a directory, print a DIRENT CSV for the cur_block
+      if (is_dir) { print_directories(inode_number, cur_block * blocksize, file_offset); }
+      if (was_referenced) { print_indirect(inode_number, curr_ind_level, file_offset, cur_block, ref_block); }
     }
+  }
+  // cur_block contains pointers, i.e. is an indirect block
+  else {
+    const int PPB = blocksize / sizeof(int);  // pointers per block
 
+    if (was_referenced) { print_indirect(inode_number, curr_ind_level, file_offset, cur_block, ref_block); }
+
+    // Read and process each block indirectly pointed to
+    for (int i = 0; i < PPB; i++) {
+      int next_block;
+      pread(fild, &next_block, 4, (cur_block * blocksize) + (i * sizeof(int)));
+      process_data_block(next_block, cur_block, file_offset + i, inode_number, max_ind_level, curr_ind_level + 1, is_dir, true);
+    }
   }
 }
 
-// block_ind_amount is single, double, or triple indirection
-void print_ib_references(int inodenumber, int blockid, int block_ind_amount) {
-  int buf, buf2, buf3;
-  int k, j, i;
-  unsigned long long int file_offset = 0;
-  const int PPB = blocksize / sizeof(int);  // pointers per block
+void print_directories(const int inode_number, const int entries_base, const int file_offset) {
+  struct ext2_dir_entry d_entry;
+  int entry_offset = 0;
 
-  // Read each value within level-1 indirect block
-  for (k = 0; k < PPB; k++) {
-      // file_offset = (11 + block_ind_amount) + k;
-      file_offset = 12 + k;
-      pread(fild, &buf, 4, (blockid * blocksize) + (k * sizeof(int)));
-      if (buf != 0) {
-    	  fprintf(stdout, "INDIRECT,%d,%d,%llu,%d,%d\n",
-    		  inodenumber,
-    		  1,           // indirection level
-    		  file_offset,
-    		  blockid,
-    		  buf);
-    	}
+  while(1) {
+    pread(fild, &d_entry, sizeof(struct ext2_dir_entry), entries_base + entry_offset);
 
-      if (block_ind_amount == 1) continue;
-      // Read each value within level-2 indirect block
-      for (j = 0; j < PPB; j++) {
-        // file_offset = (11 + block_ind_amount) + ((k + 1) * pointersPerBlock) + j;
-        file_offset = 12 + ((k+1) * PPB) + j;
-    	  pread(fild, &buf2, 4, (buf * blocksize) + (j * 4));
-    	  if (buf2 != 0) {
-  	      fprintf(stdout, "INDIRECT,%d,%d,%llu,%d,%d\n",
-  		      inodenumber,
-  		      2,         // indirection level
-  		      file_offset,
-  		      buf,
-  		      buf2);
-  	    }
+    // Reached end of entries for this directory or hit empty inode
+    if (entry_offset >= 1024 || d_entry.inode == 0) break;
 
-    	  if (block_ind_amount == 2) continue;
-        // Read each value within level-3 indirect block
-    	  for (i = 0; i < PPB; i++) {
-          // file_offset = (11 + block_ind_amount) + (pointersPerBlock * ((k + 1) + (j + 1))) + i;
-          file_offset = 12 + ((k + 1) * PPB) + ((j + 1) * (PPB * PPB)) + i;
-  	      pread(fild, &buf3, 4, (buf2 * blocksize) + (i * 4));
-  	      if (buf3 != 0) {
-      		  fprintf(stdout, "INDIRECT,%d,%d,%llu,%d,%d\n",
-      			  inodenumber,
-      			  3,                     // indirection level
-              file_offset,
-      			  buf2,
-      			  buf3);
-      		}
-  	    } // exit: for(level-3)
-    	} // exit: for(level-2)
-    } // exit: for(level-1)
+    fprintf(stdout,"DIRENT,%d,%d,%d,%d,%d,'%s'\n",
+      inode_number,
+      file_offset + entry_offset,
+      d_entry.inode,
+      d_entry.rec_len,
+      d_entry.name_len,
+      d_entry.name
+    );
+
+    entry_offset += d_entry.rec_len;
+  }
 }
 
-//waddup Bibek
-//wassgood Jehu, how's it going
+void print_indirect(const int inode_number, const int ind_level, const int file_offset, const int block_id, const int ref_block) {
+  fprintf(stdout, "INDIRECT,%d,%d,%llu,%d,%d\n",
+    inode_number,
+    ind_level,
+    file_offset,
+    ref_block,
+    block_id);
+}
+
+void print_inode(int inode_number, struct ext2_inode* cur_inode, char file_type) {
+
+  const time_t c_time_sec = (const time_t) cur_inode->i_ctime;
+  const time_t m_time_sec = (const time_t) cur_inode->i_mtime;
+  const time_t a_time_sec = (const time_t) cur_inode->i_atime;
+
+  struct tm* c_time = gmtime(&c_time_sec);
+  int c_hour = c_time->tm_hour;            // 8: time
+  int c_min = c_time->tm_min;
+  int c_sec = c_time->tm_sec;
+  struct tm* m_time = gmtime(&m_time_sec);
+  int m_hour = m_time->tm_hour;            // 9: time
+  int m_min = m_time->tm_min;
+  int m_sec = m_time->tm_sec;
+  struct tm* a_time = gmtime(&a_time_sec);
+  int a_hour = a_time->tm_hour;            // 10: time
+  int a_min = a_time->tm_min;
+  int a_sec = a_time->tm_sec;
+
+  //      0     0  0  0   0  0  0  0                              0                            1                             1  1
+  //      1     2  3  4   5  6  7  8                              9                            0                             1  2
+  printf("INODE,%d,%c,%o,%d,%d,%d,%02d/%02d/%02d %02d:%02d:%02d,%02d/%02d/%02d %02d:%02d:%02d,%02d/%02d/%02d %02d:%02d:%02d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
+    inode_number,               // 2
+    file_type,                  // 3
+    cur_inode->i_mode & 0777,   // 4
+    cur_inode->i_uid,           // 5
+    cur_inode->i_gid,           // 6
+    cur_inode->i_links_count,   // 7
+    c_time->tm_mon + 1,         // 8: date
+    c_time->tm_mday,
+    c_time->tm_year % 100,
+    c_hour,            // 8: time
+    c_min,
+    c_sec,
+    m_time->tm_mon + 1,         // 9: date
+    m_time->tm_mday,
+    m_time->tm_year % 100,
+    m_hour,            // 9: time
+    m_min,
+    m_sec,
+    a_time->tm_mon + 1,         // 10: date
+    a_time->tm_mday,
+    a_time->tm_year % 100,
+    a_hour,            // 10: time
+    a_min,
+    a_sec,
+    cur_inode->i_size,          // 11: file size
+    cur_inode->i_blocks,        // 12:
+    cur_inode->i_block[0],      // 13-27: block ids
+    cur_inode->i_block[1],
+    cur_inode->i_block[2],
+    cur_inode->i_block[3],
+    cur_inode->i_block[4],
+    cur_inode->i_block[5],
+    cur_inode->i_block[6],
+    cur_inode->i_block[7],
+    cur_inode->i_block[8],
+    cur_inode->i_block[9],
+    cur_inode->i_block[10],
+    cur_inode->i_block[11],
+    cur_inode->i_block[12],
+    cur_inode->i_block[13],
+    cur_inode->i_block[14]
+  );
+
+}
