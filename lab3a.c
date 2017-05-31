@@ -255,7 +255,9 @@ void process_data_block(const int curr_block, const int ref_block, const int fil
     for (i = 0; i < PPB; i++) {
       int next_block;
       pread(fild, &next_block, 4, (curr_block * blocksize) + (i * sizeof(int)));
-      process_data_block(next_block, curr_block, file_offset + i, inode_number, max_ind_level, curr_ind_level + 1, is_dir, true);
+      if (next_block != 0) {
+        process_data_block(next_block, curr_block, file_offset + i, inode_number, max_ind_level, curr_ind_level + 1, is_dir, true);
+      }
     }
   }
 }
@@ -269,8 +271,8 @@ void print_directories(const int inode_number, const int entries_base, const int
     pread(fild, &d_entry, sizeof(struct ext2_dir_entry), entries_base + entry_offset);
 
     // Reached end of entries for this directory or hit empty inode
-    // if (entry_offset >= blocksize || d_entry.inode == 0) break;
-    if (entry_offset >= blocksize) break;
+    if (entry_offset >= blocksize || d_entry.inode == 0) break;
+    // if (entry_offset >= blocksize) break;
 
     fprintf(stdout,"DIRENT,%d,%d,%d,%d,%d,'%s'\n",
       inode_number,
