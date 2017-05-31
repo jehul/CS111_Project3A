@@ -180,7 +180,7 @@ void print_freeinode() {
 void process_everythang() {
   const int PPB = blocksize / sizeof(int);
   struct ext2_inode* cur_inode = malloc(sizeof(struct ext2_inode));
-  int i,j, file_type;
+  int i,j,k, file_type;
   int file_offset = 0;
   // For each block group, group[i]
   for (i = 0; i < n_block_groups; i++) {
@@ -198,19 +198,21 @@ void process_everythang() {
         // We now have an inode
         print_inode(inode_number, cur_inode, file_type);
 
-        fprintf(stderr, "12, 13, 14: %d, %d, %d\n", cur_inode->i_block[12], cur_inode->i_block[13], cur_inode->i_block[14]);
+        // fprintf(stderr, "12, 13, 14: %d, %d, %d\n", cur_inode->i_block[12], cur_inode->i_block[13], cur_inode->i_block[14]);
 
-        int indirection_level, cur_block;
+        int indirection_level, cur_block = 0;
 
         // Setup process call for direct blocks
-        for (int k = 0; k < 12; k++) {
+        for (k = 0; k < 12; k++) {
           cur_block = cur_inode->i_block[k];
+          // if (cur_block == 0) break;
           file_offset = k;
           process_data_block(cur_block, 0, file_offset, inode_number, 0, 0, (file_type == 'd'), false);
         }
+        // if (cur_block == 0) continue;
 
         // Setup process call for indirect blocks
-        for (int k = 0; k < 3; k++) {
+        for (k = 0; k < 3; k++) {
           indirection_level = k + 1;
           cur_block = cur_inode->i_block[k + 12];
           if (cur_block == 0) continue;  // value of 0 is the i_block array terminator
@@ -224,7 +226,6 @@ void process_everythang() {
             process_data_block(cur_block, 0, file_offset, inode_number, indirection_level, 0, (file_type == 'd'), false);
           }
         }
-        if (cur_block == 0) continue;  // value of 0 is the i_block array terminator
       }
     } // end: for(j)
   } // end: for(i)
@@ -234,7 +235,7 @@ void process_everythang() {
 // Recursive-ready function for scanning data blocks
 // was_referenced should be false on first call to not print INDIRECT for root block
 void process_data_block(const int cur_block, const int ref_block, const int file_offset, const int inode_number, const int max_ind_level, const int curr_ind_level, const bool is_dir, const bool was_referenced) {
-
+  int i;
   if (was_referenced && cur_block != 0) { print_indirect(inode_number, curr_ind_level, file_offset, cur_block, ref_block); }
 
   // This means cur_block refers to a block that contains real data, not pointers or 0
@@ -248,7 +249,7 @@ void process_data_block(const int cur_block, const int ref_block, const int file
   else {
     const int PPB = blocksize / sizeof(int);  // pointers per block
     // Read and process each block indirectly pointed to
-    for (int i = 0; i < PPB; i++) {
+    for (i = 0; i < PPB; i++) {
       int next_block;
       pread(fild, &next_block, 4, (cur_block * blocksize) + (i * sizeof(int)));
       process_data_block(next_block, cur_block, file_offset + i, inode_number, max_ind_level, curr_ind_level + 1, is_dir, true);
