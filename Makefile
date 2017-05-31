@@ -1,3 +1,7 @@
+# NAME: Bibek Ghimire Jehu Lee
+# EMAIL: bibekg@ucla.edu jehulee97@g.ucla.edu
+# ID: 004569045 404646481
+
 SOURCE=lab3a.c
 EXEC=lab3a
 SANEFILE=P3A_check.sh
