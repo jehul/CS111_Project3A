@@ -271,17 +271,19 @@ void print_directories(const int inode_number, const int entries_base, const int
     pread(fild, &d_entry, sizeof(struct ext2_dir_entry), entries_base + entry_offset);
 
     // Reached end of entries for this directory or hit empty inode
-    if (entry_offset >= blocksize || d_entry.inode == 0) break;
+    if (entry_offset >= blocksize) break;
     // if (entry_offset >= blocksize) break;
 
-    fprintf(stdout,"DIRENT,%d,%d,%d,%d,%d,'%s'\n",
-      inode_number,
-      file_offset + entry_offset,
-      d_entry.inode,
-      d_entry.rec_len,
-      d_entry.name_len,
-      d_entry.name
-    );
+    if (d_entry.inode != 0) {
+      fprintf(stdout,"DIRENT,%d,%d,%d,%d,%d,'%s'\n",
+        inode_number,
+        file_offset + entry_offset,
+        d_entry.inode,
+        d_entry.rec_len,
+        d_entry.name_len,
+        d_entry.name
+      );
+    }
 
     entry_offset += d_entry.rec_len;
   }
